@@ -1,0 +1,6 @@
+﻿cl : command line  warning D9025: overriding '/sdl' with '/GS-'
+  lebedev_lab1.cpp
+C:\Users\ld200\Projects\CPlusPlusProjects\lebedev_lab1\lebedev_lab1\lebedev_lab1.cpp(14,9): warning C4477: 'printf' : format string '%x' requires an argument of type 'unsigned int', but variadic argument 1 has type 'void (__cdecl *)(void)'
+C:\Users\ld200\Projects\CPlusPlusProjects\lebedev_lab1\lebedev_lab1\lebedev_lab1.cpp(12,2): warning C4996: 'strcpy': This function or variable may be unsafe. Consider using strcpy_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+  LINK : /LTCG specified but no code generation required; remove /LTCG from the link command line to improve linker performance
+  lebedev_lab1.vcxproj -> C:\Users\ld200\Projects\CPlusPlusProjects\lebedev_lab1\Release\lebedev_lab1.exe
