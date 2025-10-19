@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"slices"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -22,22 +23,135 @@ const (
 	secretTemplate       = `
 #include <windows.h>
 
-int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
+LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
-	MessageBoxW(NULL, L"{{.Secret}}", L"Secret", MB_OK);
-	return 0;
+    switch (msg)
+    {
+        case WM_DESTROY:
+        case WM_CLOSE:
+            PostQuitMessage(0);
+            return 0;
+        default:
+            return DefWindowProcW(hwnd, msg, wParam, lParam);
+    }
+}
+
+int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
+{
+    const wchar_t* secret = L"{{.Secret}}";
+
+    // Регистрируем простой класс окна
+    WNDCLASSW wc = {};
+    wc.lpfnWndProc = WndProc;
+    wc.hInstance = hInstance;
+    wc.lpszClassName = L"SecretWindowClass";
+    wc.hCursor = LoadCursor(NULL, IDC_ARROW);
+    wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+
+    RegisterClassW(&wc);
+
+    HWND hwnd = CreateWindowExW(
+        0,
+        wc.lpszClassName,
+        L"Secret",
+        WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+        CW_USEDEFAULT, CW_USEDEFAULT, 600, 500,
+        NULL, NULL, hInstance, NULL
+    );
+
+    HWND hEdit = CreateWindowExW(
+        0, L"EDIT", secret,
+        WS_CHILD | WS_VISIBLE | WS_VSCROLL | ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY,
+        10, 10, 570, 440,
+        hwnd, NULL, hInstance, NULL
+    );
+
+    HFONT hFont = CreateFontW(
+        18, 0, 0, 0,
+        FW_NORMAL, FALSE, FALSE, FALSE,
+        DEFAULT_CHARSET,
+        OUT_DEFAULT_PRECIS,
+        CLIP_DEFAULT_PRECIS,
+        CLEARTYPE_QUALITY,
+        VARIABLE_PITCH,
+        L"Segoe UI"
+    );
+    SendMessageW(hEdit, WM_SETFONT, (WPARAM)hFont, TRUE);
+
+    MSG msg;
+    while (GetMessageW(&msg, NULL, 0, 0))
+    {
+        TranslateMessage(&msg);
+        DispatchMessageW(&msg);
+    }
+
+    DeleteObject(hFont);
+    return 0;
 }
 `
 	secretHTML = `
-<html><body style="font-family: sans-serif">
-<h2>Создать программу с секретом</h2>
-<form method="POST" action="/build">
-	<input name="secret" placeholder="Введите секрет" style="width:300px">
-	<button type="submit">Создать</button>
-</form>
-</body></html>
+<html>
+<head>
+  <style>
+    body {
+      font-family: sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      margin: 0;
+      background-color: #f8f9fa;
+    }
+    form {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      width: 100%;
+      max-width: 600px;
+    }
+    textarea {
+      width: 100%;
+      height: 300px;
+      font-size: 16px;
+      padding: 10px;
+      resize: vertical;
+    }
+    button {
+      padding: 8px 16px;
+      font-size: 16px;
+      cursor: pointer;
+      border: none;
+      border-radius: 6px;
+      background-color: #007bff;
+      color: white;
+      transition: background-color 0.3s;
+    }
+    button:hover {
+      background-color: #0056b3;
+    }
+  </style>
+</head>
+<body>
+  <h2>Создать программу с секретом</h2>
+  <form method="POST" action="/build">
+    <textarea name="secret" placeholder="Введите секрет..."></textarea>
+    <button type="submit">Создать</button>
+  </form>
+</body>
+</html>
 `
 )
+
+func escapeForCppWideWithNewlines(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `"`, `\"`)
+	s = strings.ReplaceAll(s, "\r\n", `\r\n`)
+	s = strings.ReplaceAll(s, "\n", `\r\n`)
+
+	return s
+}
 
 type Closer = func() error
 
@@ -108,7 +222,7 @@ func (b *SecretBuilder) BuildReader(secret string) (io.ReadCloser, error) {
 		}
 	}()
 
-	if err := b.tmpl.Execute(f, map[string]string{"Secret": secret}); err != nil {
+	if err := b.tmpl.Execute(f, map[string]any{"Secret": template.HTML(secret)}); err != nil {
 		return nil, fmt.Errorf("failed to execute template: %w", err)
 	}
 
@@ -158,7 +272,7 @@ func (s *Server) Build(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	secret := r.FormValue("secret")
+	secret := escapeForCppWideWithNewlines(r.FormValue("secret"))
 	if secret == "" {
 		http.Error(w, "empty secret", http.StatusBadRequest)
 		return
