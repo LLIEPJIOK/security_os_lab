@@ -91,53 +91,53 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
 	secretHTML = `
 <html>
 <head>
-  <style>
-    body {
-      font-family: sans-serif;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      height: 100vh;
-      margin: 0;
-      background-color: #f8f9fa;
-    }
-    form {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 10px;
-      width: 100%;
-      max-width: 600px;
-    }
-    textarea {
-      width: 100%;
-      height: 300px;
-      font-size: 16px;
-      padding: 10px;
-      resize: vertical;
-    }
-    button {
-      padding: 8px 16px;
-      font-size: 16px;
-      cursor: pointer;
-      border: none;
-      border-radius: 6px;
-      background-color: #007bff;
-      color: white;
-      transition: background-color 0.3s;
-    }
-    button:hover {
-      background-color: #0056b3;
-    }
-  </style>
+	<style>
+		body {
+			font-family: sans-serif;
+			display: flex;
+			flex-direction: column;
+			align-items: center;
+			justify-content: center;
+			height: 100vh;
+			margin: 0;
+			background-color: #f8f9fa;
+		}
+		form {
+			display: flex;
+			flex-direction: column;
+			align-items: center;
+			gap: 10px;
+			width: 100%;
+			max-width: 600px;
+		}
+		textarea {
+			width: 100%;
+			height: 300px;
+			font-size: 16px;
+			padding: 10px;
+			resize: vertical;
+		}
+		button {
+			padding: 8px 16px;
+			font-size: 16px;
+			cursor: pointer;
+			border: none;
+			border-radius: 6px;
+			background-color: #007bff;
+			color: white;
+			transition: background-color 0.3s;
+		}
+			button:hover {
+			background-color: #0056b3;
+		}
+	</style>
 </head>
 <body>
-  <h2>Создать программу с секретом</h2>
-  <form method="POST" action="/build">
-    <textarea name="secret" placeholder="Введите секрет..."></textarea>
-    <button type="submit">Создать</button>
-  </form>
+	<h2>Создать программу с секретом</h2>
+	<form method="POST" action="/build">
+		<textarea name="secret" placeholder="Введите секрет..."></textarea>
+		<button type="submit">Создать</button>
+	</form>
 </body>
 </html>
 `
@@ -192,7 +192,9 @@ func (rr *RemoveReader) Close() error {
 }
 
 type SecretBuilder struct {
-	tmpl *template.Template
+	tmpl     *template.Template
+	certPath string
+	certPwd  string
 }
 
 func NewSecretBuilder() (*SecretBuilder, error) {
@@ -202,7 +204,9 @@ func NewSecretBuilder() (*SecretBuilder, error) {
 	}
 
 	return &SecretBuilder{
-		tmpl: tmpl,
+		tmpl:     tmpl,
+		certPath: os.Getenv("CERT_PATH"),
+		certPwd:  os.Getenv("CERT_PWD"),
 	}, nil
 }
 
@@ -226,11 +230,30 @@ func (b *SecretBuilder) BuildReader(secret string) (io.ReadCloser, error) {
 	}
 
 	outFile := f.Name() + ".exe"
-	cmd := exec.Command("gcc", "-mwindows", "-o", outFile, f.Name())
+	buildCmd := exec.Command("gcc", "-mwindows", "-o", outFile, f.Name())
 
-	out, err := cmd.CombinedOutput()
+	out, err := buildCmd.CombinedOutput()
 	if err != nil {
-		return nil, fmt.Errorf("build failed: %v\n%s", err, string(out))
+		return nil, fmt.Errorf("failed to build exe: %v\n%s", err, string(out))
+	}
+
+	signCmd := exec.Command(
+		"signtool",
+		"sign",
+		"/f",
+		b.certPath,
+		"/p",
+		b.certPwd,
+		"/fd",
+		"SHA256",
+		"/tr",
+		"http://timestamp.digicert.com",
+		"/td",
+		"SHA256",
+		outFile,
+	)
+	if err := signCmd.Run(); err != nil {
+		return nil, fmt.Errorf("failed to sign exe: %w", err)
 	}
 
 	rr, err := NewRemoveReader(outFile)
