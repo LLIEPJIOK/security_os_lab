@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"html/template"
 	"io"
-	"log"
 	"log/slog"
 	"net/http"
 	"os"
@@ -301,7 +300,8 @@ func (s *Server) Build(w http.ResponseWriter, r *http.Request) {
 func main() {
 	builder, err := NewSecretBuilder()
 	if err != nil {
-		log.Fatal(err)
+		slog.Error("Failed to create builder", slog.Any("error", err))
+		os.Exit(1)
 	}
 
 	mux := http.NewServeMux()
