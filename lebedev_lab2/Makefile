@@ -15,8 +15,8 @@ cert:
 	@powershell -Command "New-SelfSignedCertificate -Type CodeSigningCert -Subject 'CN=$(CERT_NAME)' -CertStoreLocation 'Cert:\\CurrentUser\\My' -KeyExportPolicy Exportable"
 	@powershell -Command "$$cert = Get-ChildItem Cert:\\CurrentUser\\My | Where-Object { $$_.Subject -eq 'CN=$(CERT_NAME)' }; Export-PfxCertificate -Cert $$cert -FilePath '$(CERT_PATH)' -Password (ConvertTo-SecureString -String '$(CERT_PWD)' -Force -AsPlainText)"
 
-.PHONY: clean_cert
-clean_cert:
+.PHONY: remove_cert
+remove_cert:
 	@powershell -Command "Get-ChildItem Cert:\CurrentUser\My | Where-Object { $$_.Subject -eq 'CN=$(CERT_NAME)' } | ForEach-Object { Remove-Item -LiteralPath $$_.PSPath -Force; Write-Host 'Deleted:' $$_.Subject }"
 	del "$(subst /,\,$(CERT_PATH))"
 
