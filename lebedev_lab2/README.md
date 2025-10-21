@@ -160,7 +160,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
 
 ### Предварительные шаги
 
-Необходимо сгенерировать сертификат для последующей подписи:
+Необходимо сгенерировать сертификат для последующей подписи. Для этого надо изменить переменные окружения в [Makefile](./Makefile) при необходимости и выполнить следующую команду:
 
 ```cmd
 make cert
@@ -178,6 +178,15 @@ make remove_cert
 
 ```cmd
 make run
+```
+
+или cо своими переменными окружения:
+
+```cmd
+set CERT_NAME=Lab2Cert
+set CERT_PATH=C:/Users/ld200/Lab2Cert.pfx
+set CERT_PWD=P@ssw0rd
+bin\lebedev_lab2.exe
 ```
 
 ## Демонстрация
