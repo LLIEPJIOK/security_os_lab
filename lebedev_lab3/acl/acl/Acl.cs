@@ -8,14 +8,14 @@ public class Ace
 {
     public string Identity { get; set; } = "";
     public string AccessType { get; set; } = "";
-    public string Rights { get; set; } = "";
+    public int Rights { get; set; }
     public string InheritanceFlags { get; set; } = "";
     public string PropagationFlags { get; set; } = "";
 }
 
 public class ACL
 {
-    public List<Ace> Aces { get; set; } = new List<Ace>();
+    public Dictionary<string, List<Ace>> Aces { get; set; } = [];
     private static readonly JsonSerializerOptions jsonOpts = new()
     {
         WriteIndented = true
@@ -24,14 +24,18 @@ public class ACL
     public static ACL FromRules(AuthorizationRuleCollection rules)
     {
         var acl = new ACL();
-
         foreach (FileSystemAccessRule rule in rules)
         {
-            acl.Aces.Add(new Ace
+            if (!acl.Aces.ContainsKey(rule.IdentityReference.Value))
+            {
+                acl.Aces[rule.IdentityReference.Value] = [];
+            }
+
+            acl.Aces[rule.IdentityReference.Value].Add(new Ace
             {
                 Identity = rule.IdentityReference.Value,
                 AccessType = rule.AccessControlType.ToString(),
-                Rights = rule.FileSystemRights.ToString(),
+                Rights = (int)rule.FileSystemRights,
                 InheritanceFlags = rule.InheritanceFlags.ToString(),
                 PropagationFlags = rule.PropagationFlags.ToString()
             });
@@ -44,23 +48,19 @@ public class ACL
     {
         var rules = new AuthorizationRuleCollection();
 
-        foreach (var ace in Aces)
+        foreach (var (_, aceList) in Aces)
         {
-            var identity = new NTAccount(ace.Identity);
-            var accessType = Enum.Parse<AccessControlType>(ace.AccessType);
-            var rights = Enum.Parse<FileSystemRights>(ace.Rights);
-            var inheritance = Enum.Parse<InheritanceFlags>(ace.InheritanceFlags);
-            var propagation = Enum.Parse<PropagationFlags>(ace.PropagationFlags);
+            foreach (var ace in aceList)
+            {
+                var identity = new NTAccount(ace.Identity);
+                var accessType = Enum.Parse<AccessControlType>(ace.AccessType);
+                var inheritance = Enum.Parse<InheritanceFlags>(ace.InheritanceFlags);
+                var propagation = Enum.Parse<PropagationFlags>(ace.PropagationFlags);
+                var rights = (FileSystemRights)ace.Rights;
 
-            var rule = new FileSystemAccessRule(
-                identity,
-                rights,
-                inheritance,
-                propagation,
-                accessType
-            );
-
-            rules.AddRule(rule);
+                var rule = new FileSystemAccessRule(identity, rights, inheritance, propagation, accessType);
+                rules.AddRule(rule);
+            }
         }
 
         return rules;
@@ -68,12 +68,18 @@ public class ACL
 
     public string ToJson()
     {
-        return JsonSerializer.Serialize(this, jsonOpts);
+        return JsonSerializer.Serialize(Aces, jsonOpts);
     }
+
 
     public static ACL FromJson(string json)
     {
-        return JsonSerializer.Deserialize<ACL>(json, jsonOpts) ?? new ACL();
+        var acl = new ACL();
+
+        var d = JsonSerializer.Deserialize<Dictionary<string, List<Ace>>>(json, jsonOpts);
+        acl.Aces = d ?? [];
+
+        return acl;
     }
 }
 
@@ -102,7 +108,14 @@ public class AclHandler
 
         foreach (FileSystemAccessRule newRule in newRules)
         {
-            fileSecurity.AddAccessRule(newRule);
+            try
+            {
+                fileSecurity.AddAccessRule(newRule);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Warning: Cannot apply rule for {newRule.IdentityReference}: {ex.Message}");
+            }
         }
 
         fileInfo.SetAccessControl(fileSecurity);
@@ -131,7 +144,14 @@ public class AclHandler
 
         foreach (FileSystemAccessRule newRule in newRules)
         {
-            dirSecurity.AddAccessRule(newRule);
+            try
+            {
+                dirSecurity.AddAccessRule(newRule);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Warning: Cannot apply rule for {newRule.IdentityReference}: {ex.Message}");
+            }
         }
 
         dirInfo.SetAccessControl(dirSecurity);
