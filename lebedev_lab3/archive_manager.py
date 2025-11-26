@@ -25,9 +25,8 @@ class PathAcl(Dict[str, CSharpACL]):
     def __setitem__(self, key: str, value: CSharpACL):
         if key in self:
             acl = super().__getitem__(key)
-            for ace_key in value.Aces.Keys:
-                ace_value = value.Aces[ace_key]
-                acl.Aces[ace_key] = ace_value
+            acl.Merge(value)
+            super().__setitem__(key, acl)
         else:
             super().__setitem__(key, value)
 
