@@ -192,6 +192,10 @@ class SystemAclsDict(Dict[str, PathAcl]):
         return acls
 
 
+def is_empty_dir(path: Path) -> bool:
+    return path.is_dir() and not any(path.iterdir())
+
+
 class ArchiveManager:
     @staticmethod
     def pack(source_path: str, archive_path: str, progress_callback=None):
@@ -213,7 +217,7 @@ class ArchiveManager:
                     acl = AclHandler.GetDirAcl(str(item)) if item.is_dir() else AclHandler.GetFileAcl(str(item))
                     acls[str(item.relative_to(parent))] = acl
 
-                    if item.is_file():
+                    if item.is_file() or is_empty_dir(item):
                         tar.add(item, arcname=item.relative_to(parent))
 
                     if progress_callback:
