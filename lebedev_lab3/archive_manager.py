@@ -1,38 +1,100 @@
-from collections.abc import Iterator
 import json
 import os
-from pathlib import Path
+import platform
 import tarfile
 import tempfile
-from typing import Dict
-import platform
+from collections.abc import Iterator
+from pathlib import Path
+from typing import Dict, Union
 
-import pythonnet
-pythonnet.load("coreclr")
+# Определяем платформу
+IS_WINDOWS = platform.system() == "Windows"
+IS_LINUX = platform.system() == "Linux"
 
-import clr
-clr.AddReference(str(Path(r"acl/acl/bin/Release/net8.0/acl.dll").resolve()))
+# Импортируем соответствующие модули в зависимости от платформы
+if IS_WINDOWS:
+    import pythonnet
+    pythonnet.load("coreclr")
+    
+    import clr
+    clr.AddReference(str(Path(r"acl/acl/bin/Release/net8.0/acl.dll").resolve()))
+    
+    from Acl import ACL as CSharpACL
+    from Acl import AclHandler as CSharpAclHandler
 
-from Acl import AclHandler, ACL as CSharpACL
+if IS_LINUX:
+    from linux_acl_handler import LinuxACL, LinuxAclHandler
 
-class PathAcl(Dict[str, CSharpACL]):
+# Универсальная обертка для работы с ACL
+class AclHandler:
+    @staticmethod
+    def GetFileAcl(file_path: str):
+        if IS_WINDOWS:
+            return CSharpAclHandler.GetFileAcl(file_path)
+        elif IS_LINUX:
+            return LinuxAclHandler.get_file_acl(file_path)
+        else:
+            raise NotImplementedError(f"Platform {platform.system()} is not supported")
+    
+    @staticmethod
+    def GetDirAcl(dir_path: str):
+        if IS_WINDOWS:
+            return CSharpAclHandler.GetDirAcl(dir_path)
+        elif IS_LINUX:
+            return LinuxAclHandler.get_dir_acl(dir_path)
+        else:
+            raise NotImplementedError(f"Platform {platform.system()} is not supported")
+    
+    @staticmethod
+    def SetFileAcl(file_path: str, acl):
+        if IS_WINDOWS:
+            return CSharpAclHandler.SetFileAcl(file_path, acl)
+        elif IS_LINUX:
+            return LinuxAclHandler.set_file_acl(file_path, acl)
+        else:
+            raise NotImplementedError(f"Platform {platform.system()} is not supported")
+    
+    @staticmethod
+    def SetDirAcl(dir_path: str, acl):
+        if IS_WINDOWS:
+            return CSharpAclHandler.SetDirAcl(dir_path, acl)
+        elif IS_LINUX:
+            return LinuxAclHandler.set_dir_acl(dir_path, acl)
+        else:
+            raise NotImplementedError(f"Platform {platform.system()} is not supported")
+
+
+class PathAcl(Dict[str, Union['CSharpACL', 'LinuxACL']]):
     def __init__(self):
         super().__init__()
 
-    def __getitem__(self, key: str) -> CSharpACL:
+    def __getitem__(self, key: str):
         return super().__getitem__(key)
 
-    def __setitem__(self, key: str, value: CSharpACL):
+    def __setitem__(self, key: str, value):
         if key in self:
             acl = super().__getitem__(key)
-            acl.Merge(value)
-            super().__setitem__(key, acl)
+            # Merge для C# ACL
+            if IS_WINDOWS and hasattr(acl, 'Merge'):
+                acl.Merge(value)
+                super().__setitem__(key, acl)
+            # Merge для Linux ACL
+            elif IS_LINUX and hasattr(acl, 'merge'):
+                acl.merge(value)
+                super().__setitem__(key, acl)
+            else:
+                super().__setitem__(key, value)
         else:
             super().__setitem__(key, value)
 
     def __items__(self):
         for key in self:
-            yield key, [self[key].Aces[ace_key] for ace_key in self[key].Aces.Keys]
+            acl = self[key]
+            if IS_WINDOWS and hasattr(acl, 'Aces'):
+                yield key, [acl.Aces[ace_key] for ace_key in acl.Aces.Keys]
+            else:
+                yield key, acl
+
 
 class SystemAclsDict(Dict[str, PathAcl]):
     def __init__(self):
@@ -40,11 +102,11 @@ class SystemAclsDict(Dict[str, PathAcl]):
         self.system = platform.system()
         super().__setitem__(self.system, PathAcl())
 
-    def __getitem__(self, key: str) -> CSharpACL:
+    def __getitem__(self, key: str):
         system_map = super().__getitem__(self.system)
         return system_map.get(key)
 
-    def __setitem__(self, key: str, value: CSharpACL):
+    def __setitem__(self, key: str, value):
         if self.system not in self:
             super().__setitem__(self.system, PathAcl())
 
@@ -76,7 +138,14 @@ class SystemAclsDict(Dict[str, PathAcl]):
         for system_name, files in super().items():
             json_dict[system_name] = {}
             for file_name, acl in files.items():
-                json_dict[system_name][file_name] = acl.ToJson()
+                # Для Windows используем C# метод ToJson
+                if IS_WINDOWS and hasattr(acl, 'ToJson'):
+                    json_dict[system_name][file_name] = acl.ToJson()
+                # Для Linux используем Python метод to_json
+                elif IS_LINUX and hasattr(acl, 'to_json'):
+                    json_dict[system_name][file_name] = acl.to_json()
+                else:
+                    json_dict[system_name][file_name] = json.dumps(acl)
 
         return json.dumps(json_dict, indent=4)
     
@@ -88,7 +157,16 @@ class SystemAclsDict(Dict[str, PathAcl]):
         for system_name, files in json_dict.items():
             super(SystemAclsDict, acls).__setitem__(system_name, PathAcl())
             for file_name, acl_json in files.items():
-                acl = CSharpACL.FromJson(acl_json)
+                # Определяем тип ACL по имени системы
+                if system_name == "Windows" and IS_WINDOWS:
+                    acl = CSharpACL.FromJson(acl_json)
+                elif system_name == "Linux" and IS_LINUX:
+                    from linux_acl_handler import LinuxACL
+                    acl = LinuxACL.from_json(acl_json)
+                else:
+                    # Пропускаем ACL для других систем
+                    continue
+                
                 super(SystemAclsDict, acls).__getitem__(system_name)[file_name] = acl
 
         return acls
@@ -112,6 +190,7 @@ class SystemAclsDict(Dict[str, PathAcl]):
                     system_dict[str(rel_path / file_name)] = acl
 
         return acls
+
 
 class ArchiveManager:
     @staticmethod
