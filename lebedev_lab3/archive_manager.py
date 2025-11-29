@@ -273,10 +273,40 @@ def is_empty_dir(path: Path) -> bool:
 
 class ArchiveManager:
     @staticmethod
-    def pack(source_path: str, archive_path: str, progress_callback=None):
+    def check_archive_exists(archive_path: str) -> bool:
+        """Check if archive already exists."""
+        return os.path.exists(archive_path)
+    
+    @staticmethod
+    def get_conflicting_files(archive_path: str, destination_path: str) -> List[str]:
+        """Get list of files that would be overwritten during unpacking."""
+        conflicts = []
+        output_dir = Path(destination_path)
+        
+        if not os.path.exists(archive_path):
+            return conflicts
+        
+        try:
+            with tarfile.open(archive_path, "r") as tar:
+                for member in tar.getmembers():
+                    if member.name == ".acls":
+                        continue
+                    full_path = output_dir / member.name
+                    if full_path.exists():
+                        conflicts.append(member.name)
+        except Exception:
+            pass
+        
+        return conflicts
+    
+    @staticmethod
+    def pack(source_path: str, archive_path: str, progress_callback=None, force_overwrite: bool = False):
         source_path = Path(source_path)
         if not os.path.exists(source_path):
             raise FileNotFoundError(f"Source path does not exist: {source_path}")
+        
+        if not force_overwrite and os.path.exists(archive_path):
+            raise FileExistsError(f"Archive already exists: {archive_path}")
         
         parent = source_path.parent
         items = [p for p in [source_path] + list(source_path.rglob("*")) if p.name != ".acls"]
@@ -312,8 +342,14 @@ class ArchiveManager:
                     progress_callback(total_items, total_items, "Packing completed!")
     
     @staticmethod
-    def unpack(archive_path: str, destination_path: str, progress_callback=None):
+    def unpack(archive_path: str, destination_path: str, progress_callback=None, force_overwrite: bool = False):
         output_dir = Path(destination_path)
+        
+        if not force_overwrite:
+            conflicts = ArchiveManager.get_conflicting_files(archive_path, destination_path)
+            if conflicts:
+                raise FileExistsError(f"Files would be overwritten: {', '.join(conflicts[:5])}{'...' if len(conflicts) > 5 else ''}")
+        
         output_dir.mkdir(parents=True, exist_ok=True)
 
         existing_acls = SystemAclsDict()

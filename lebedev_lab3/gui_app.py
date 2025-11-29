@@ -290,6 +290,17 @@ class ArchiveGUI:
             else:
                 return
         
+        # Check if archive already exists
+        force_overwrite = False
+        if ArchiveManager.check_archive_exists(archive):
+            choice = messagebox.askyesno("Archive Exists",
+                                        f"Archive already exists:\n{archive}\n\n"
+                                        "Do you want to overwrite it?")
+            if choice:
+                force_overwrite = True
+            else:
+                return
+        
         self.pack_progress['value'] = 0
         self.pack_status_label.config(text="Starting packing...")
         
@@ -300,7 +311,7 @@ class ArchiveGUI:
         
         def pack_thread():
             try:
-                ArchiveManager.pack(source, archive, progress_callback)
+                ArchiveManager.pack(source, archive, progress_callback, force_overwrite)
             except Exception as e:
                 self.root.after(0, lambda exc=e: messagebox.showerror("Error", f"Failed to create archive: {exc}"))
         
@@ -331,6 +342,21 @@ class ArchiveGUI:
             else:
                 return
         
+        # Check for conflicting files
+        force_overwrite = False
+        conflicts = ArchiveManager.get_conflicting_files(archive, destination)
+        if conflicts:
+            conflict_list = "\n".join(conflicts[:10])
+            more_text = f"\n... and {len(conflicts) - 10} more files" if len(conflicts) > 10 else ""
+            choice = messagebox.askyesno("Files Will Be Overwritten",
+                                        f"The following files already exist and will be overwritten:\n\n"
+                                        f"{conflict_list}{more_text}\n\n"
+                                        "Do you want to continue?")
+            if choice:
+                force_overwrite = True
+            else:
+                return
+        
         self.unpack_progress['value'] = 0
         self.unpack_status_label.config(text="Starting unpacking...")
         
@@ -341,7 +367,7 @@ class ArchiveGUI:
         
         def unpack_thread():
             try:
-                ArchiveManager.unpack(archive, destination, progress_callback)
+                ArchiveManager.unpack(archive, destination, progress_callback, force_overwrite)
             except Exception as e:
                 self.root.after(0, lambda exc=e: messagebox.showerror("Error", f"Failed to unpack archive: {exc}"))
 
