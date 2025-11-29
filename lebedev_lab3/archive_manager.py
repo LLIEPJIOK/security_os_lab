@@ -202,7 +202,7 @@ class SystemAclsDict(Dict[str, PathAcl]):
                 inner = SystemAclsDict.from_json(json_str)
                 for system_name, path_acls in super(SystemAclsDict, inner).items():
                     for file_path, universal_acl in path_acls.items():
-                        acls.add_acl(system_name, ".", universal_acl)
+                        acls.add_acl(system_name, file_path, universal_acl)
         else:
             p = p.parent
 
