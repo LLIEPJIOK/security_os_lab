@@ -194,23 +194,20 @@ class SystemAclsDict(Dict[str, PathAcl]):
     def load_from_source(p: Path) -> "SystemAclsDict":
         acls = SystemAclsDict()
 
-        if p.is_dir():
-            if (p.parent / ".acls").exists():
-                with open(p.parent / ".acls", "r", encoding="utf-8") as f:
-                    json_str = f.read()
+        if (p.parent / ".acls").exists():
+            with open(p.parent / ".acls", "r", encoding="utf-8") as f:
+                json_str = f.read()
 
-                inner = SystemAclsDict.from_json(json_str)
-                for system_name, path_acls in super(SystemAclsDict, inner).items():
-                    for file_path, universal_acl in path_acls.items():
-                        acls.add_acl(system_name, file_path, universal_acl)
-        else:
-            p = p.parent
+            inner = SystemAclsDict.from_json(json_str)
+            for system_name, path_acls in super(SystemAclsDict, inner).items():
+                for file_path, universal_acl in path_acls.items():
+                    acls.add_acl(system_name, file_path, universal_acl)
+
+        if p.is_file():
+            return acls
 
         for acls_file in p.rglob(".acls"):
-            if p.is_file():
-                rel_path = acls_file.relative_to(p).parent
-            else:
-                rel_path = acls_file.relative_to(p.parent).parent
+            rel_path = acls_file.relative_to(p.parent).parent
             
             with open(acls_file, "r", encoding="utf-8") as f:
                 json_str = f.read()
@@ -319,6 +316,15 @@ class ArchiveManager:
         output_dir = Path(destination_path)
         output_dir.mkdir(parents=True, exist_ok=True)
 
+        existing_acls = SystemAclsDict()
+        if (output_dir / ".acls").exists():
+            try:
+                with open(output_dir / ".acls", "r", encoding="utf-8") as f:
+                    existing_json = f.read()
+                existing_acls = SystemAclsDict.from_json(existing_json)
+            except Exception:
+                pass
+
         with tarfile.open(archive_path, "r") as tar:
             tar.extractall(path=output_dir)
 
@@ -326,8 +332,17 @@ class ArchiveManager:
         with open(acl_file, "r", encoding="utf-8") as f:
             acl_json_str = f.read()
 
-        acls = SystemAclsDict.from_json(acl_json_str)
-        current_system_acls = acls.get_current_system_acls()
+        archive_acls = SystemAclsDict.from_json(acl_json_str)
+        
+        for system_name, path_acls in super(SystemAclsDict, archive_acls).items():
+            for file_path, universal_acl in path_acls.items():
+                existing_acls.add_acl(system_name, file_path, universal_acl)
+        
+        merged_json = existing_acls.to_json()
+        with open(acl_file, "w", encoding="utf-8") as f:
+            f.write(merged_json)
+        
+        current_system_acls = archive_acls.get_current_system_acls()
         total_entries = len(current_system_acls)
 
         for idx, (file_path, universal_acl) in enumerate(current_system_acls.items(), 1):
