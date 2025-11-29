@@ -95,7 +95,7 @@ def main():
         text=True
     )
 
-    print("[*] Returning decrypted files to device…")
+    print("[*] Returning decrypted files to device...")
 
     for local_in, original_remote in local_map.items():
         decrypted = local_in.replace(".enc", "")
