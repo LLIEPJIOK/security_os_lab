@@ -1,4 +1,5 @@
 ﻿using System.Security.AccessControl;
+using System.Security.Principal;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
@@ -79,24 +80,72 @@ public class ACL
         }
     }
 
+    private static bool IsValidSid(string sid)
+    {
+        if (string.IsNullOrEmpty(sid))
+            return false;
+
+        try
+        {
+            var securityIdentifier = new SecurityIdentifier(sid);
+            securityIdentifier.Translate(typeof(NTAccount));
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static string? ExtractSidFromAce(string ace)
+    {
+        // Extract SID from ACE format: (type;flags;rights;object_guid;inherit_object_guid;sid)
+        var aceContent = ace.Trim('(', ')');
+        var parts = aceContent.Split(';');
+        return parts.Length >= 6 ? parts[5] : null;
+    }
+
     public string ToSddl()
     {
         var sddl = "";
 
-        // Add Owner
         if (!string.IsNullOrEmpty(Owner))
         {
-            sddl += $"O:{Owner}";
+            if (Owner.StartsWith("S-") && !IsValidSid(Owner))
+            {
+                Console.WriteLine($"Warning: Skipping invalid owner SID: {Owner}");
+            }
+            else
+            {
+                sddl += $"O:{Owner}";
+            }
         }
 
-        // Add Group
         if (!string.IsNullOrEmpty(Group))
         {
-            sddl += $"G:{Group}";
+            if (Group.StartsWith("S-") && !IsValidSid(Group))
+            {
+                Console.WriteLine($"Warning: Skipping invalid group SID: {Group}");
+            }
+            else
+            {
+                sddl += $"G:{Group}";
+            }
         }
 
-        // Add DACL
-        var allAces = Aces.Values.SelectMany(x => x).ToList();
+        var allAces = Aces.Values.SelectMany(x => x)
+            .Where(ace =>
+            {
+                var sid = ExtractSidFromAce(ace);
+                if (sid != null && sid.StartsWith("S-") && !IsValidSid(sid))
+                {
+                    Console.WriteLine($"Warning: Skipping ACE with invalid SID: {sid}");
+                    return false;
+                }
+                return true;
+            })
+            .ToList();
+
         var sortedAces = allAces
             .Select(ace => new
             {
@@ -113,19 +162,34 @@ public class ACL
             })
             .Select(ace => ace.Raw)
             .ToList();
+
         sddl += "D:";
         foreach (var ace in sortedAces)
         {
             sddl += ace;
         }
 
-        // Add SACL
         if (Saces.Count > 0)
         {
-            sddl += "S:";
+            var validSaces = new List<string>();
             foreach (var (sid, aceList) in Saces)
             {
                 foreach (var ace in aceList)
+                {
+                    var aceSid = ExtractSidFromAce(ace);
+                    if (aceSid != null && aceSid.StartsWith("S-") && !IsValidSid(aceSid))
+                    {
+                        Console.WriteLine($"Warning: Skipping SACE with invalid SID: {aceSid}");
+                        continue;
+                    }
+                    validSaces.Add(ace);
+                }
+            }
+
+            if (validSaces.Count > 0)
+            {
+                sddl += "S:";
+                foreach (var ace in validSaces)
                 {
                     sddl += ace;
                 }
@@ -195,7 +259,6 @@ public class ACL
             {
                 Aces[sid].Remove(ace);
                 Aces[sid].Add(ace);
-                Aces[sid].Add(ace);
             }
         }
 
@@ -233,8 +296,15 @@ public class AclHandler
         var fileSecurity = fileInfo.GetAccessControl();
         string newSddl = acl.ToSddl();
 
-        fileSecurity.SetSecurityDescriptorSddlForm(newSddl);
-        fileInfo.SetAccessControl(fileSecurity);
+        try
+        {
+            fileSecurity.SetSecurityDescriptorSddlForm(newSddl);
+            fileInfo.SetAccessControl(fileSecurity);
+        }
+        catch
+        {
+            Console.WriteLine("Failed to set ACL for file: " + filePath);
+        }
     }
 
     public static ACL GetDirAcl(string directoryPath)
@@ -252,7 +322,14 @@ public class AclHandler
         var dirSecurity = dirInfo.GetAccessControl();
         string newSddl = acl.ToSddl();
 
-        dirSecurity.SetSecurityDescriptorSddlForm(newSddl);
-        dirInfo.SetAccessControl(dirSecurity);
+        try
+        {
+            dirSecurity.SetSecurityDescriptorSddlForm(newSddl);
+            dirInfo.SetAccessControl(dirSecurity);
+        }
+        catch
+        {
+            Console.WriteLine("Failed to set ACL for directory: " + directoryPath);
+        }
     }
 }
