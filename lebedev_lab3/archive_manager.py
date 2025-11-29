@@ -202,20 +202,23 @@ class SystemAclsDict(Dict[str, PathAcl]):
                 inner = SystemAclsDict.from_json(json_str)
                 for system_name, path_acls in super(SystemAclsDict, inner).items():
                     for file_path, universal_acl in path_acls.items():
-                        full_path = str(p / file_path)
-                        acls.add_acl(system_name, full_path, universal_acl)
+                        acls.add_acl(system_name, ".", universal_acl)
         else:
             p = p.parent
 
         for acls_file in p.rglob(".acls"):
-            rel_path = acls_file.relative_to(p).parent
+            if p.is_file():
+                rel_path = acls_file.relative_to(p).parent
+            else:
+                rel_path = acls_file.relative_to(p.parent).parent
+            
             with open(acls_file, "r", encoding="utf-8") as f:
                 json_str = f.read()
 
             inner = SystemAclsDict.from_json(json_str)
             for system_name, path_acls in super(SystemAclsDict, inner).items():
                 for file_path, universal_acl in path_acls.items():
-                    full_path = str(rel_path / file_path)
+                    full_path = (rel_path / file_path).as_posix()
                     acls.add_acl(system_name, full_path, universal_acl)
 
         return acls
@@ -291,14 +294,14 @@ class ArchiveManager:
                 for idx, item in enumerate(items, 1):
                     universal_acl = AclHandler.GetDirAcl(str(item)) if item.is_dir() else AclHandler.GetFileAcl(str(item))
                     
-                    rel_path = str(item.relative_to(parent))
+                    rel_path = item.relative_to(parent).as_posix()
                     acls.add_acl(acls.current_system, rel_path, universal_acl)
 
                     if item.is_file() or is_empty_dir(item):
-                        tar.add(item, arcname=item.relative_to(parent))
+                        tar.add(item, arcname=rel_path)
 
                     if progress_callback:
-                        progress_callback(idx, total_items, f"Packing: {str(item.relative_to(source_path))}")
+                        progress_callback(idx, total_items, f"Packing: {rel_path}")
 
                 acl_json_str = acls.to_json()
                 acl_json_path = tmp_acl_dir / ".acls"
